@@ -1,0 +1,114 @@
+import React, { useState, useEffect } from 'react';
+import { ethers } from 'ethers';
+import './App.css';
+import ExpenseTrackerABI from './ExpenseTrackerABI.json';
+
+function App() {
+  const [provider, setProvider] = useState(null);
+  const [contract, setContract] = useState(null);
+  const [account, setAccount] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [name, setName] = useState('');
+  const [expenses, setExpenses] = useState([]);
+  const [people, setPeople] = useState([]);
+  const [loadingExpenses, setLoadingExpenses] = useState(false);
+  const [expenseLabel, setExpenseLabel] = useState('');
+  const [participants, setParticipants] = useState([{ address: '', amountPaid: 0, amountOwed: 0 }]);
+  const [showAddExpense, setShowAddExpense] = useState(false);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const contractAddress = "YOUR_CONTRACT_ADDRESS_HERE";
+
+  const buttonStyle = {
+    padding: '8px 16px',
+    margin: '5px',
+    backgroundColor: '#4a90e2',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'background 0.3s'
+  };
+
+  useEffect(() => {
+    const init = async () => {
+      if (window.ethereum) {
+        try {
+          await window.ethereum.request({ method: 'eth_requestAccounts' });
+          const providerInstance = new ethers.providers.Web3Provider(window.ethereum);
+          setProvider(providerInstance);
+
+          const network = await providerInstance.getNetwork();
+          if (network.chainId !== 11155111) {
+            alert("Please connect to Sepolia testnet.");
+            return;
+          }
+
+          const signer = providerInstance.getSigner();
+          const address = await signer.getAddress();
+          setAccount(address);
+          setIsConnected(true);
+
+          const contractInstance = new ethers.Contract(contractAddress, ExpenseTrackerABI, signer);
+          setContract(contractInstance);
+
+          window.ethereum.on('accountsChanged', (accounts) => {
+            setAccount(accounts[0] || '');
+            setIsConnected(accounts.length > 0);
+          });
+
+        } catch (error) {
+          console.error("Initialization error:", error);
+        }
+      } else {
+        alert("Please install MetaMask.");
+      }
+    };
+
+    init();
+
+    return () => {
+      if (window.ethereum) {
+        window.ethereum.removeAllListeners('accountsChanged');
+      }
+    };
+  }, []);
+
+  // Additional logic for theme switching can be added here without using CSS
+  const [darkTheme, setDarkTheme] = useState(false);
+
+  const toggleTheme = () => {
+    setDarkTheme(prev => !prev);
+  };
+
+  const appStyle = {
+    backgroundColor: darkTheme ? '#1e1e1e' : '#f0f4f7',
+    color: darkTheme ? '#f0f0f0' : '#1e1e1e',
+    minHeight: '100vh',
+    padding: '2rem'
+  };
+
+  const cardStyle = {
+    padding: '2rem',
+    maxWidth: '1000px',
+    margin: 'auto',
+    background: darkTheme ? '#2e2e2e' : '#ffffff',
+    borderRadius: '12px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
+  };
+
+  return (
+    <div className="App" style={appStyle}>
+      <header className="App-header" style={cardStyle}>
+        <h1>Expense Tracker</h1>
+        <button onClick={toggleTheme} style={buttonStyle}>
+          Switch to {darkTheme ? 'Light' : 'Dark'} Theme
+        </button>
+        {/* Your existing content goes here */}
+      </header>
+    </div>
+  );
+}
+
+export default App;
