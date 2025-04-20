@@ -17,18 +17,43 @@ function App() {
   const [participants, setParticipants] = useState([{ address: '', amountPaid: 0, amountOwed: 0 }]);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [totalUsers, setTotalUsers] = useState(0);
+  const [theme, setTheme] = useState('light');
+
   const contractAddress = "YOUR_CONTRACT_ADDRESS_HERE";
 
-  const buttonStyle = {
-    padding: '8px 16px',
-    margin: '5px',
-    backgroundColor: '#4a90e2',
-    color: 'white',
-    border: 'none',
+  const toggleTheme = () => setTheme(theme === 'light' ? 'dark' : 'light');
+
+  const themeStyles = {
+    backgroundColor: theme === 'light' ? '#f2f5f7' : '#1e1e1e',
+    color: theme === 'light' ? '#111' : '#fff',
+  };
+
+  const cardStyle = {
+    backgroundColor: theme === 'light' ? '#ffffff' : '#2e2e2e',
+    color: theme === 'light' ? '#000' : '#fff',
+    border: '1px solid #ccc',
+    padding: '10px',
+    marginBottom: '10px',
     borderRadius: '6px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    transition: 'background 0.3s'
+  };
+
+  const inputStyle = {
+    padding: '8px',
+    margin: '4px',
+    borderRadius: '4px',
+    border: '1px solid #ccc',
+    backgroundColor: theme === 'light' ? '#fff' : '#444',
+    color: theme === 'light' ? '#000' : '#fff'
+  };
+
+  const buttonStyle = {
+    margin: '4px',
+    padding: '8px 12px',
+    backgroundColor: theme === 'light' ? '#007bff' : '#444',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer'
   };
 
   useEffect(() => {
@@ -75,37 +100,147 @@ function App() {
     };
   }, []);
 
-  // Additional logic for theme switching can be added here without using CSS
-  const [darkTheme, setDarkTheme] = useState(false);
+  useEffect(() => {
+    const checkRegistration = async () => {
+      if (!contract || !account) return;
 
-  const toggleTheme = () => {
-    setDarkTheme(prev => !prev);
+      try {
+        const person = await contract.getPerson(account);
+        const registered = person.walletAddress !== ethers.constants.AddressZero;
+        setIsRegistered(registered);
+
+        if (registered) {
+          setName(person.name);
+          await loadExpenses();
+          await loadPeople();
+          setTotalUsers((await contract.gettotalUsers()).toNumber());
+        }
+      } catch (error) {
+        console.error("Error checking registration:", error);
+      }
+    };
+    checkRegistration();
+  }, [contract, account]);
+
+  const registerPerson = async () => {
+    if (!name.trim()) {
+      alert("Please enter your name.");
+      return;
+    }
+    try {
+      const tx = await contract.registerPerson(name.trim());
+      await tx.wait();
+      setIsRegistered(true);
+      alert("Registration successful!");
+      await loadPeople();
+      await loadExpenses();
+    } catch (error) {
+      console.error("Registration failed:", error);
+      alert(`Registration failed: ${error.message}`);
+    }
   };
 
-  const appStyle = {
-    backgroundColor: darkTheme ? '#1e1e1e' : '#f0f4f7',
-    color: darkTheme ? '#f0f0f0' : '#1e1e1e',
-    minHeight: '100vh',
-    padding: '2rem'
+  const loadExpenses = async () => {
+    if (!contract || !isRegistered) return;
+    setLoadingExpenses(true);
+    try {
+      const count = await contract.expenseCount();
+      const loaded = [];
+
+      for (let i = 0; i < count; i++) {
+        const [id, label, timestamp] = await contract.getExpenseBasicInfo(i);
+        const participantsAddresses = await contract.getExpenseParticipants(i);
+        const participantsData = await Promise.all(
+          participantsAddresses.map(async (address) => {
+            const amountPaid = await contract.getAmountPaid(i, address);
+            const amountOwed = await contract.getAmountOwed(i, address);
+            return {
+              address,
+              amountPaid: ethers.utils.formatEther(amountPaid),
+              amountOwed: ethers.utils.formatEther(amountOwed),
+            };
+          })
+        );
+        loaded.push({
+          id: id.toNumber(),
+          label,
+          timestamp: new Date(timestamp.toNumber() * 1000).toLocaleString(),
+          participants: participantsData,
+        });
+      }
+
+      setExpenses(loaded);
+    } catch (error) {
+      console.error("Error loading expenses:", error);
+    } finally {
+      setLoadingExpenses(false);
+    }
   };
 
-  const cardStyle = {
-    padding: '2rem',
-    maxWidth: '1000px',
-    margin: 'auto',
-    background: darkTheme ? '#2e2e2e' : '#ffffff',
-    borderRadius: '12px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
+  const loadPeople = async () => {
+    if (!contract) return;
+    try {
+      const addresses = await contract.getAllRegisteredPeople();
+      const peopleData = await Promise.all(
+        addresses.map(async (address) => {
+          const person = await contract.getPerson(address);
+          const netBalance = await contract.getNetBalance(address);
+          return {
+            address,
+            name: person.name,
+            netBalance: ethers.utils.formatEther(netBalance),
+          };
+        })
+      );
+      setPeople(peopleData);
+    } catch (error) {
+      console.error("Error loading people:", error);
+    }
   };
 
   return (
-    <div className="App" style={appStyle}>
-      <header className="App-header" style={cardStyle}>
-        <h1>Expense Tracker</h1>
-        <button onClick={toggleTheme} style={buttonStyle}>
-          Switch to {darkTheme ? 'Light' : 'Dark'} Theme
-        </button>
-        {/* Your existing content goes here */}
+    <div className="App" style={{ ...themeStyles, minHeight: '100vh', padding: '20px' }}>
+      <header>
+        <h1>On-Chain Expense Tracker</h1>
+        <button onClick={toggleTheme} style={buttonStyle}>Toggle {theme === 'light' ? 'Dark' : 'Light'} Mode</button>
+        {!isConnected ? (
+          <button style={buttonStyle} onClick={() => window.ethereum.request({ method: 'eth_requestAccounts' })}>
+            Connect Wallet
+          </button>
+        ) : !isRegistered ? (
+          <div>
+            <h2>Register</h2>
+            <input style={inputStyle} type="text" placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} />
+            <button style={buttonStyle} onClick={registerPerson}>Register</button>
+          </div>
+        ) : (
+          <div>
+            <h2>Welcome, {name}</h2>
+            <p>Account: {account}</p>
+            <div>
+              <button style={buttonStyle} onClick={loadPeople}>Refresh People</button>
+              <button style={buttonStyle} onClick={loadExpenses}>Refresh Expenses</button>
+            </div>
+            <h3>People</h3>
+            {people.map((p, i) => (
+              <div key={i} style={cardStyle}>
+                <strong>{p.name}</strong> ({p.address.substring(0, 8)}...)<br/>
+                Net Balance: <span style={{ color: parseFloat(p.netBalance) < 0 ? 'red' : 'green' }}>{parseFloat(p.netBalance).toFixed(4)} ETH</span>
+              </div>
+            ))}
+            <h3>Expenses</h3>
+            {loadingExpenses ? <p>Loading...</p> : (
+              expenses.map(exp => (
+                <div key={exp.id} style={cardStyle}>
+                  <strong>{exp.label}</strong> <em>{exp.timestamp}</em>
+                  {exp.participants.map((p, i) => (
+                    <p key={i}>{people.find(per => per.address === p.address)?.name || p.address.substring(0, 8)}... paid {p.amountPaid} ETH, owes {p.amountOwed} ETH</p>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </header>
     </div>
   );
